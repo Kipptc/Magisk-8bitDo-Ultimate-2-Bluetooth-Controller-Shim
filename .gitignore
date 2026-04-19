@@ -1,0 +1,6 @@
+# homemade build script for windows because I'm lazy - termux/linux is easier
+build.ps1
+
+# cloned other helpful repo documentation here - not committing this
+documentation/
+dist/

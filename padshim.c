@@ -14,7 +14,12 @@
 #endif
 
 #define TARGET_NAME "Nintendo Switch Pro Controller"
-#define CHECK_INTERVAL_SECONDS 30
+
+#ifdef PADSHIM_DEBUG
+#define LOG(fmt, ...) fprintf(stderr, "padshim: " fmt "\n", ##__VA_ARGS__)
+#else
+#define LOG(...) ((void)0)
+#endif
 
 static int emit(int fd, int type, int code, int val) {
     struct input_event ie;
@@ -138,7 +143,7 @@ static int create_virtual_device(void) {
 
     struct uinput_setup usetup;
     memset(&usetup, 0, sizeof(usetup));
-    snprintf(usetup.name, UINPUT_MAX_NAME_SIZE, "8BitDo Trigger Shim");
+    snprintf(usetup.name, UINPUT_MAX_NAME_SIZE, "Cyanogenmon Padshim");
     usetup.id.bustype = BUS_USB;
     usetup.id.vendor = 0x2022;
     usetup.id.product = 0x3001;
@@ -156,12 +161,14 @@ static int create_virtual_device(void) {
         return -1;
     }
 
+    LOG("created virtual controller '%s'", usetup.name);
     sleep(1);
     return ufd;
 }
 
 static void destroy_virtual_device(int ufd) {
     if (ufd >= 0) {
+        LOG("destroying virtual controller");
         ioctl(ufd, UI_DEV_DESTROY);
         close(ufd);
     }
@@ -240,43 +247,47 @@ static void forward_event(int ufd, const struct input_event *ev) {
 }
 
 int main(void) {
-    while (1) {
-        char src[256];
-        if (find_input_device_by_name(TARGET_NAME, src, sizeof(src)) < 0) {
-            sleep(CHECK_INTERVAL_SECONDS);
-            continue;
-        }
+    char src[256];
+    int infd;
+    int ufd;
+    struct input_event ev;
+    ssize_t n;
 
-        int infd = open(src, O_RDONLY);
-        if (infd < 0) {
-            sleep(CHECK_INTERVAL_SECONDS);
-            continue;
-        }
-
-        if (ioctl(infd, EVIOCGRAB, 1) < 0) {
-            perror("EVIOCGRAB");
-        }
-
-        int ufd = create_virtual_device();
-        if (ufd < 0) {
-            ioctl(infd, EVIOCGRAB, 0);
-            close(infd);
-            sleep(CHECK_INTERVAL_SECONDS);
-            continue;
-        }
-
-        struct input_event ev;
-        ssize_t n;
-        while ((n = read(infd, &ev, sizeof(ev))) == sizeof(ev)) {
-            forward_event(ufd, &ev);
-        }
-
-        destroy_virtual_device(ufd);
-        ioctl(infd, EVIOCGRAB, 0);
-        close(infd);
-
-        sleep(CHECK_INTERVAL_SECONDS);
+    if (find_input_device_by_name(TARGET_NAME, src, sizeof(src)) < 0) {
+        LOG("controller not found at startup");
+        return 1;
     }
 
+    LOG("found controller at %s", src);
+    infd = open(src, O_RDONLY);
+    if (infd < 0) {
+        return 1;
+    }
+
+    if (ioctl(infd, EVIOCGRAB, 1) < 0) {
+        perror("EVIOCGRAB");
+        LOG("failed to grab %s", src);
+    }
+
+    ufd = create_virtual_device();
+    if (ufd < 0) {
+        ioctl(infd, EVIOCGRAB, 0);
+        close(infd);
+        return 1;
+    }
+
+    while ((n = read(infd, &ev, sizeof(ev))) == sizeof(ev)) {
+        forward_event(ufd, &ev);
+    }
+
+    if (n < 0 && errno != EINTR) {
+        LOG("controller read ended with errno=%d", errno);
+    } else {
+        LOG("controller disconnected");
+    }
+
+    destroy_virtual_device(ufd);
+    ioctl(infd, EVIOCGRAB, 0);
+    close(infd);
     return 0;
 }

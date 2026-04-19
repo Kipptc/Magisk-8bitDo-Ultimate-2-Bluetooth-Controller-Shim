@@ -1,6 +1,6 @@
 id=padshimboot
 name=Padshim Boot
-version=1.0
-versionCode=1
+version=0.10
+versionCode=10
 author=Cyanogenmon
 description=8BitDo Ultimate 2 Bluetooth controller input shim for bluetooth mode
